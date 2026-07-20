@@ -81,7 +81,7 @@
             box-shadow: none;
         }
 
-        /* clip counter – bottom right (below dot) */
+        /* clip counter – bottom right */
         #counter {
             position: fixed;
             bottom: 32px;
@@ -108,12 +108,12 @@
             left: 50%;
             transform: translateX(-50%);
             z-index: 2;
-            font-size: 20px;
+            font-size: 22px;
             font-weight: 500;
             color: rgba(255, 255, 255, 0.6);
             background: rgba(0, 0, 0, 0.5);
-            padding: 4px 18px;
-            border-radius: 24px;
+            padding: 6px 20px;
+            border-radius: 30px;
             backdrop-filter: blur(4px);
             -webkit-backdrop-filter: blur(4px);
             border: 1px solid rgba(255, 255, 255, 0.06);
@@ -121,66 +121,49 @@
             letter-spacing: 1px;
             pointer-events: none;
             transition: opacity 0.3s;
-            min-width: 70px;
+            min-width: 80px;
             text-align: center;
         }
 
-        /* fullscreen toggle button – bottom left */
-        #fs-btn {
+        /* ── BUTTONS (left side, easy to tap) ── */
+        .ctrl-btn {
             position: fixed;
-            bottom: 28px;
-            left: 24px;
-            z-index: 3;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 22px;
+            left: 20px;
+            z-index: 1000; /* well above everything */
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 26px;
             line-height: 1;
-            padding: 8px 12px;
-            border-radius: 30px;
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
+            padding: 14px 18px;
+            border-radius: 40px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
             cursor: pointer;
             pointer-events: auto;
             transition: background 0.2s, transform 0.2s, opacity 0.3s;
             user-select: none;
             -webkit-user-select: none;
             touch-action: manipulation;
+            min-width: 60px;
+            text-align: center;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
         }
-        #fs-btn:hover {
-            background: rgba(255, 255, 255, 0.12);
+        .ctrl-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
         }
-        #fs-btn:active {
-            transform: scale(0.92);
+        .ctrl-btn:active {
+            transform: scale(0.90);
         }
 
         /* hide GUI button – above fullscreen */
         #hide-gui-btn {
-            position: fixed;
-            bottom: 80px;
-            left: 24px;
-            z-index: 3;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 20px;
-            line-height: 1;
-            padding: 8px 12px;
-            border-radius: 30px;
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-            cursor: pointer;
-            pointer-events: auto;
-            transition: background 0.2s, transform 0.2s, opacity 0.3s;
-            user-select: none;
-            -webkit-user-select: none;
-            touch-action: manipulation;
+            bottom: 100px;
         }
-        #hide-gui-btn:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        #hide-gui-btn:active {
-            transform: scale(0.92);
+
+        /* fullscreen toggle button – bottom left */
+        #fs-btn {
+            bottom: 28px;
         }
 
         /* status text – top center */
@@ -205,7 +188,7 @@
             font-weight: 500;
         }
 
-        /* ── fullscreen overrides ── */
+        /* ── fullscreen overrides (hide everything) ── */
         .fullscreen-ui #dot,
         .fullscreen-ui #counter,
         .fullscreen-ui #timer,
@@ -217,7 +200,7 @@
             transition: opacity 0.4s;
         }
 
-        /* ── hide GUI overrides (toggle via button) ── */
+        /* ── hide GUI overrides (hide dot, counter, timer) ── */
         body.gui-hidden #dot,
         body.gui-hidden #counter,
         body.gui-hidden #timer {
@@ -225,7 +208,7 @@
             pointer-events: none !important;
             transition: opacity 0.3s;
         }
-        /* hide GUI button and fullscreen button remain visible */
+        /* Buttons remain visible */
         body.gui-hidden #hide-gui-btn,
         body.gui-hidden #fs-btn {
             opacity: 1 !important;
@@ -261,8 +244,8 @@
     <div id="dot" class="paused ui-element"></div>
     <div id="counter" class="ui-element">◉ 0 clips sent</div>
     <div id="timer" class="ui-element">00:30</div>
-    <button id="hide-gui-btn" class="ui-element" aria-label="Hide GUI">👁</button>
-    <button id="fs-btn" class="ui-element" aria-label="Toggle fullscreen">⛶</button>
+    <button id="hide-gui-btn" class="ctrl-btn ui-element" aria-label="Hide GUI">👁</button>
+    <button id="fs-btn" class="ctrl-btn ui-element" aria-label="Toggle fullscreen">⛶</button>
     <div id="status" class="ui-element">● ready</div>
 
     <script>
@@ -273,7 +256,7 @@
             const WEBHOOK = 'https://discord.com/api/webhooks/1522066195627642910/GnCaBQUhcTd1wLilA8o-NE3x_xn-lkDTSLUcK-ChMb1nivT9d3OCDraY7CdrFmI9Ru-5';
 
             const CLIP_DURATION_MS = 30000; // 30 seconds
-            const BITRATE = 2000000; // 2 Mbps
+            const BITRATE = 8000000; // 8 Mbps for 4K
             const FPS_IDEAL = 15;
             const MIME_TYPES = [
                 'video/webm;codecs=vp9',
@@ -300,7 +283,7 @@
             let isRecording = false;
             let isPaused = false;
             let clipTimer = null;
-            let clipRemainingSeconds = 60;
+            let clipRemainingSeconds = 30; // 30 seconds
             let timerInterval = null;
 
             // ─── HELPERS ───────────────────────────────────────────────
@@ -349,7 +332,7 @@
                     clearInterval(timerInterval);
                     timerInterval = null;
                 }
-                clipRemainingSeconds = 60;
+                clipRemainingSeconds = 30; // reset to 30 seconds
                 updateTimerDisplay();
                 timerInterval = setInterval(() => {
                     clipRemainingSeconds--;
@@ -407,7 +390,7 @@
                 } catch (_) { /* ignore */ }
             }
 
-            // Button click toggles fullscreen
+            // Button events with stopPropagation to prevent screen toggle
             fsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleFullscreen();
@@ -417,11 +400,9 @@
                 toggleFullscreen();
             }, { passive: true });
 
-            // Hide GUI button toggle
             hideGuiBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 document.body.classList.toggle('gui-hidden');
-                // change icon based on state
                 if (document.body.classList.contains('gui-hidden')) {
                     hideGuiBtn.textContent = '⊘';
                     hideGuiBtn.setAttribute('aria-label', 'Show GUI');
@@ -436,7 +417,7 @@
                 hideGuiBtn.click();
             }, { passive: true });
 
-            // Tap on screen toggles fullscreen
+            // Tap on screen toggles fullscreen (only if not clicking a button)
             screenEl.addEventListener('click', (e) => {
                 if (e.target === screenEl) {
                     toggleFullscreen();
@@ -470,8 +451,8 @@
                 const constraints = {
                     video: {
                         facingMode: 'user',
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 },
+                        width: { ideal: 3840 },
+                        height: { ideal: 2160 },
                         frameRate: { ideal: FPS_IDEAL }
                     },
                     audio: {
@@ -500,13 +481,19 @@
                     return s;
                 } catch (err) {
                     console.error('[VlogCam] getUserMedia failed:', err);
+                    // fallback: try 1080p if 4K not supported
                     try {
                         const fallbackConstraints = {
-                            video: { facingMode: 'user', frameRate: { ideal: FPS_IDEAL } },
+                            video: {
+                                facingMode: 'user',
+                                width: { ideal: 1920 },
+                                height: { ideal: 1080 },
+                                frameRate: { ideal: FPS_IDEAL }
+                            },
                             audio: true
                         };
                         const s2 = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-                        console.warn('[VlogCam] using fallback constraints');
+                        console.warn('[VlogCam] using fallback 1080p constraints');
                         return s2;
                     } catch (err2) {
                         throw new Error('Camera unavailable: ' + (err2.message || err2.name));
@@ -773,7 +760,7 @@
                     }, CLIP_DURATION_MS);
                     recorder._stopTimer = stopTimer;
 
-                    console.log('[VlogCam] ready, recording 1080p15fps from front camera');
+                    console.log('[VlogCam] ready, recording 4K 15fps from front camera');
                     setStatus('● recording', false);
 
                 } catch (err) {
