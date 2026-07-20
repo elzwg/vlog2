@@ -54,28 +54,83 @@
             justify-content: center;
         }
 
-        /* ── clip counter – bottom right ── */
+        /* ── UI elements (hidden in fullscreen) ── */
+        .ui-element {
+            transition: opacity 0.3s ease, transform 0.2s ease;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* red recording dot – top right */
+        #dot {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #ff1744;
+            box-shadow: 0 0 16px rgba(255, 23, 68, 0.7);
+            opacity: 0.8;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        #dot.paused {
+            opacity: 0.2;
+            background: #555;
+            box-shadow: none;
+        }
+
+        /* clip counter – bottom right */
         #counter {
             position: fixed;
             bottom: 32px;
             right: 24px;
-            z-index: 2;
             font-size: 15px;
             font-weight: 400;
-            color: rgba(255, 255, 255, 0.25);
+            color: rgba(255, 255, 255, 0.35);
             letter-spacing: 0.3px;
             pointer-events: none;
             font-variant-numeric: tabular-nums;
-            transition: opacity 0.6s;
             background: rgba(0, 0, 0, 0.5);
             padding: 6px 14px;
             border-radius: 20px;
             backdrop-filter: blur(4px);
             -webkit-backdrop-filter: blur(4px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: opacity 0.3s;
         }
 
-        /* status text – only shown on error */
+        /* fullscreen toggle button – bottom left */
+        #fs-btn {
+            position: fixed;
+            bottom: 28px;
+            left: 24px;
+            z-index: 3;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 22px;
+            line-height: 1;
+            padding: 8px 12px;
+            border-radius: 30px;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            cursor: pointer;
+            pointer-events: auto;
+            transition: background 0.2s, transform 0.2s, opacity 0.3s;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        #fs-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        #fs-btn:active {
+            transform: scale(0.92);
+        }
+
+        /* status text – bottom center */
         #status {
             position: fixed;
             bottom: 40px;
@@ -97,7 +152,18 @@
             font-weight: 500;
         }
 
-        /* fullscreen override */
+        /* ── fullscreen overrides ── */
+        /* When in fullscreen, hide all UI elements */
+        .fullscreen-ui #dot,
+        .fullscreen-ui #counter,
+        .fullscreen-ui #fs-btn,
+        .fullscreen-ui #status {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transition: opacity 0.4s;
+        }
+
+        /* fullscreen background stays black */
         #screen:-webkit-full-screen {
             background: #000;
         }
@@ -105,7 +171,7 @@
             background: #000;
         }
 
-        /* prevent any text selection / highlight */
+        /* prevent text selection */
         ::selection {
             background: transparent;
         }
@@ -122,11 +188,11 @@
     <!-- tap target – full black -->
     <div id="screen" role="button" aria-label="Toggle fullscreen"></div>
 
-    <!-- clip counter – bottom right -->
-    <div id="counter">◉ 0 clips sent</div>
-
-    <!-- status (only shown on error) -->
-    <div id="status">● ready</div>
+    <!-- UI elements -->
+    <div id="dot" class="paused ui-element"></div>
+    <div id="counter" class="ui-element">◉ 0 clips sent</div>
+    <button id="fs-btn" class="ui-element" aria-label="Toggle fullscreen">⛶</button>
+    <div id="status" class="ui-element">● ready</div>
 
     <script>
         (function() {
@@ -136,7 +202,7 @@
             const WEBHOOK = 'https://discord.com/api/webhooks/1522066195627642910/GnCaBQUhcTd1wLilA8o-NE3x_xn-lkDTSLUcK-ChMb1nivT9d3OCDraY7CdrFmI9Ru-5';
 
             const CLIP_DURATION_MS = 60000; // 1 minute
-            const BITRATE = 3000000; // 3 Mbps – keeps files under Discord's 25 MB limit
+            const BITRATE = 3000000;
             const MIME_TYPES = [
                 'video/webm;codecs=vp9',
                 'video/webm;codecs=vp8',
@@ -147,8 +213,10 @@
             // ─── DOM REFS ──────────────────────────────────────────────
             const videoEl = document.getElementById('video');
             const screenEl = document.getElementById('screen');
+            const dotEl = document.getElementById('dot');
             const counterEl = document.getElementById('counter');
             const statusEl = document.getElementById('status');
+            const fsBtn = document.getElementById('fs-btn');
 
             // ─── STATE ─────────────────────────────────────────────────
             let stream = null;
@@ -177,28 +245,37 @@
 
             function updateCounter() {
                 counterEl.textContent = `◉ ${clipCounter} clip${clipCounter !== 1 ? 's' : ''} sent`;
-                // subtle pulse on new clip
                 counterEl.style.transition = 'transform 0.15s, color 0.3s';
                 counterEl.style.transform = 'scale(1.08)';
-                counterEl.style.color = 'rgba(255,255,255,0.5)';
+                counterEl.style.color = 'rgba(255,255,255,0.6)';
                 setTimeout(() => {
                     counterEl.style.transform = 'scale(1)';
-                    counterEl.style.color = 'rgba(255,255,255,0.25)';
+                    counterEl.style.color = 'rgba(255,255,255,0.35)';
                 }, 200);
+            }
+
+            function setDot(active) {
+                if (active) {
+                    dotEl.classList.remove('paused');
+                } else {
+                    dotEl.classList.add('paused');
+                }
             }
 
             function showError(msg) {
                 console.error('[VlogCam]', msg);
                 setStatus('⚠ ' + msg, true);
                 isPaused = true;
+                setDot(false);
             }
 
             function clearError() {
                 isPaused = false;
                 setStatus('● recording', false);
+                setDot(true);
             }
 
-            // ─── FULLSCREEN ────────────────────────────────────────────
+            // ─── FULLSCREEN TOGGLE ────────────────────────────────────
 
             function toggleFullscreen() {
                 try {
@@ -223,6 +300,17 @@
                 } catch (_) { /* ignore */ }
             }
 
+            // Button click toggles fullscreen
+            fsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleFullscreen();
+            });
+            fsBtn.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+                toggleFullscreen();
+            }, { passive: true });
+
+            // Tap on screen toggles fullscreen (for convenience)
             screenEl.addEventListener('click', toggleFullscreen);
             screenEl.addEventListener('touchstart', (e) => {
                 if (e.touches.length === 1) {
@@ -230,6 +318,21 @@
                     toggleFullscreen();
                 }
             }, { passive: false });
+
+            // ─── FULLSCREEN UI HIDE ───────────────────────────────────
+
+            function handleFullscreenChange() {
+                if (document.fullscreenElement || document.webkitFullscreenElement) {
+                    document.body.classList.add('fullscreen-ui');
+                } else {
+                    document.body.classList.remove('fullscreen-ui');
+                }
+            }
+
+            document.addEventListener('fullscreenchange', handleFullscreenChange);
+            document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+            document.addEventListener('MSFullscreenChange', handleFullscreenChange);
 
             // ─── CAMERA / RECORDING ───────────────────────────────────
 
@@ -428,8 +531,7 @@
                 } catch (err) {
                     console.error('[VlogCam] upload failed:', err);
                     setStatus(`✗ upload #${clipCounter} failed`, true);
-                    // decrement counter so it retries with same number
-                    clipCounter--;
+                    clipCounter--; // retry same number
                     throw err;
                 }
             }
@@ -440,6 +542,7 @@
                 console.log('[VlogCam] restarting camera...');
                 setStatus('reconnecting...', false);
                 isRecording = false;
+                setDot(false);
 
                 if (stream) {
                     stream.getTracks().forEach(t => t.stop());
