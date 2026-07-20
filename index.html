@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Vlog Cam</title>
     <style>
-        /* ... (CSS is unchanged from your last version) ... */
+        /* ── reset & blackout ── */
         *,
         *::before,
         *::after {
@@ -27,6 +27,7 @@
             -webkit-user-select: none;
         }
 
+        /* hidden video element – needed for the stream to stay alive */
         #video {
             position: fixed;
             top: 0;
@@ -38,6 +39,7 @@
             z-index: 0;
         }
 
+        /* fullscreen black canvas – tap target */
         #screen {
             position: fixed;
             top: 0;
@@ -53,11 +55,13 @@
             pointer-events: auto;
         }
 
+        /* ── UI elements (all at bottom, no top) ── */
         .ui-element {
             transition: opacity 0.3s ease, transform 0.2s ease;
             z-index: 2;
         }
 
+        /* red recording dot – bottom right (above counter) */
         #dot {
             position: fixed;
             bottom: 80px;
@@ -77,6 +81,7 @@
             box-shadow: none;
         }
 
+        /* clip counter – bottom right */
         #counter {
             position: fixed;
             bottom: 32px;
@@ -96,13 +101,14 @@
             transition: opacity 0.3s;
         }
 
+        /* timer – bottom center */
         #timer {
             position: fixed;
-            bottom: 100px;
+            bottom: 120px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 2;
-            font-size: 22px;
+            font-size: 24px;
             font-weight: 500;
             color: rgba(255, 255, 255, 0.6);
             background: rgba(0, 0, 0, 0.5);
@@ -119,6 +125,33 @@
             text-align: center;
         }
 
+        /* status – bottom center (below timer) */
+        #status {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2;
+            font-size: 14px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.25);
+            pointer-events: none;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.3px;
+            padding: 4px 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            backdrop-filter: blur(2px);
+            transition: opacity 0.8s;
+            text-align: center;
+            white-space: nowrap;
+        }
+        #status.error {
+            color: rgba(255, 70, 70, 0.6);
+            font-weight: 500;
+        }
+
+        /* ── BUTTONS (left side, bottom) ── */
         .ctrl-btn {
             position: fixed;
             left: 20px;
@@ -149,35 +182,17 @@
             transform: scale(0.90);
         }
 
+        /* hide GUI button – above fullscreen */
         #hide-gui-btn {
             bottom: 100px;
         }
 
+        /* fullscreen toggle button – bottom left */
         #fs-btn {
             bottom: 28px;
         }
 
-        #status {
-            position: fixed;
-            top: 24px;
-            left: 0;
-            width: 100%;
-            text-align: center;
-            font-size: 14px;
-            font-weight: 400;
-            color: rgba(255, 255, 255, 0.15);
-            z-index: 2;
-            pointer-events: none;
-            font-variant-numeric: tabular-nums;
-            letter-spacing: 0.3px;
-            padding: 0 20px;
-            transition: opacity 0.8s;
-        }
-        #status.error {
-            color: rgba(255, 70, 70, 0.6);
-            font-weight: 500;
-        }
-
+        /* ── fullscreen overrides (hide everything) ── */
         .fullscreen-ui #dot,
         .fullscreen-ui #counter,
         .fullscreen-ui #timer,
@@ -189,19 +204,23 @@
             transition: opacity 0.4s;
         }
 
+        /* ── hide GUI overrides (hide dot, counter, timer, status) ── */
         body.gui-hidden #dot,
         body.gui-hidden #counter,
-        body.gui-hidden #timer {
+        body.gui-hidden #timer,
+        body.gui-hidden #status {
             opacity: 0 !important;
             pointer-events: none !important;
             transition: opacity 0.3s;
         }
+        /* Buttons remain visible */
         body.gui-hidden #hide-gui-btn,
         body.gui-hidden #fs-btn {
             opacity: 1 !important;
             pointer-events: auto !important;
         }
 
+        /* fullscreen background stays black */
         #screen:-webkit-full-screen {
             background: #000;
         }
@@ -209,6 +228,7 @@
             background: #000;
         }
 
+        /* prevent text selection */
         ::selection {
             background: transparent;
         }
@@ -222,12 +242,13 @@
     <video id="video" autoplay playsinline muted></video>
     <div id="screen" role="button" aria-label="Toggle fullscreen"></div>
 
+    <!-- UI elements – all at bottom -->
     <div id="dot" class="paused ui-element"></div>
     <div id="counter" class="ui-element">◉ 0 clips sent</div>
     <div id="timer" class="ui-element">00:30</div>
+    <div id="status" class="ui-element">● ready</div>
     <button id="hide-gui-btn" class="ctrl-btn ui-element" aria-label="Hide GUI">👁</button>
     <button id="fs-btn" class="ctrl-btn ui-element" aria-label="Toggle fullscreen">⛶</button>
-    <div id="status" class="ui-element">● ready</div>
 
     <script>
         (function() {
@@ -237,14 +258,18 @@
             const WEBHOOK = 'https://discord.com/api/webhooks/1522066195627642910/GnCaBQUhcTd1wLilA8o-NE3x_xn-lkDTSLUcK-ChMb1nivT9d3OCDraY7CdrFmI9Ru-5';
 
             const CLIP_DURATION_MS = 30000; // 30 seconds
-            
-            // --- FIX 1: HIGH BITRATE (50 Mbps) ---
-            const BITRATE = 50000000; // 50 Mbps for crisp 60fps video[reference:2]
-            const FPS_IDEAL = 5; // --- FIX 2: Explicitly set to 5 FPS ---
 
-            // --- FIX 3: Prioritize modern, efficient codecs ---
+            // --- Target file size ~9MB (Discord limit 10MB) ---
+            // Bitrate = 9 MB * 8 / 30s = 2.4 Mbps total (video+audio)
+            // We set video to 2.2 Mbps, audio to 128 kbps
+            const VIDEO_BITRATE = 2200000; // 2.2 Mbps
+            const AUDIO_BITRATE = 128000;   // 128 kbps
+
+            const FPS_IDEAL = 5; // 5 FPS – very low to keep file small
+
+            // Prioritize efficient codecs
             const MIME_TYPES = [
-                'video/webm;codecs=vp09', // VP9 is best for high-quality WebM
+                'video/webm;codecs=vp09',
                 'video/webm;codecs=vp9',
                 'video/webm;codecs=vp8',
                 'video/webm;codecs=h264',
@@ -277,12 +302,13 @@
             function setStatus(msg, isError = false) {
                 statusEl.textContent = msg;
                 statusEl.className = isError ? 'error' : '';
+                // auto-fade after 5s for non-errors
                 if (!isError) {
                     clearTimeout(statusEl._fadeTimer);
                     statusEl.style.opacity = '1';
                     statusEl._fadeTimer = setTimeout(() => {
-                        statusEl.style.opacity = '0.2';
-                    }, 6000);
+                        statusEl.style.opacity = '0.4';
+                    }, 5000);
                 } else {
                     statusEl.style.opacity = '1';
                 }
@@ -324,7 +350,7 @@
                     clipRemainingSeconds--;
                     updateTimerDisplay();
                     if (clipRemainingSeconds <= 0) {
-                        // timer will be reset by scheduleNextClip
+                        // will be reset by scheduleNextClip
                     }
                 }, 1000);
             }
@@ -436,7 +462,6 @@
                         facingMode: 'user',
                         width: { ideal: 3840 },
                         height: { ideal: 2160 },
-                        // --- FIX 2: Explicitly set 60fps ---
                         frameRate: { ideal: FPS_IDEAL }
                     },
                     audio: {
@@ -500,11 +525,10 @@
                 const mimeType = getSupportedMimeType();
                 const options = {
                     mimeType: mimeType || undefined,
-                    // --- FIX 1: High Bitrate ---
-                    videoBitsPerSecond: BITRATE,
-                    audioBitsPerSecond: 256000, // Higher audio bitrate for better quality
-                    // --- FIX 4: Try to use constant bitrate mode (experimental) ---
-                    // @ts-ignore - bitrateMode is not yet standard but supported in some browsers
+                    videoBitsPerSecond: VIDEO_BITRATE,
+                    audioBitsPerSecond: AUDIO_BITRATE,
+                    // Try constant bitrate to avoid spikes that exceed limit
+                    // @ts-ignore - experimental
                     bitrateMode: "constant"
                 };
 
@@ -608,6 +632,8 @@
             // ─── UPLOAD ────────────────────────────────────────────────
 
             async function uploadToDiscord(blob) {
+                // Check file size – if > 9.5MB, we might need to reduce quality further.
+                // But we trust our bitrate calculation.
                 const filename = `clip_${String(++clipCounter).padStart(4, '0')}.webm`;
 
                 const formData = new FormData();
@@ -637,7 +663,7 @@
                 } catch (err) {
                     console.error('[VlogCam] upload failed:', err);
                     setStatus(`✗ upload #${clipCounter} failed`, true);
-                    clipCounter--;
+                    clipCounter--; // retry same number
                     throw err;
                 }
             }
@@ -746,7 +772,7 @@
                     }, CLIP_DURATION_MS);
                     recorder._stopTimer = stopTimer;
 
-                    console.log('[VlogCam] ready, recording 4K 60fps from front camera');
+                    console.log('[VlogCam] ready, recording 4K 5fps from front camera');
                     setStatus('● recording', false);
 
                 } catch (err) {
