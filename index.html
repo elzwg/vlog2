@@ -260,14 +260,11 @@
             const CLIP_DURATION_MS = 60000; // 1 minute
 
             // --- Target file size < 10MB (Discord limit) ---
-            // 10 MB * 8 = 80 megabits / 60 seconds = 1.33 Mbps total
-            // We set video to 1.2 Mbps, audio to 128 kbps = 1.328 Mbps total
             const VIDEO_BITRATE = 1200000; // 1.2 Mbps
             const AUDIO_BITRATE = 128000;   // 128 kbps
 
-            const FPS_IDEAL = 15; // 15 FPS – smooth enough, keeps file small
+            const FPS_IDEAL = 15; // 15 FPS
 
-            // Prioritize efficient codecs
             const MIME_TYPES = [
                 'video/webm;codecs=vp09',
                 'video/webm;codecs=vp9',
@@ -302,7 +299,6 @@
             function setStatus(msg, isError = false) {
                 statusEl.textContent = msg;
                 statusEl.className = isError ? 'error' : '';
-                // auto-fade after 5s for non-errors
                 if (!isError) {
                     clearTimeout(statusEl._fadeTimer);
                     statusEl.style.opacity = '1';
@@ -377,31 +373,54 @@
                 startTimer();
             }
 
-            // ─── FULLSCREEN TOGGLE ────────────────────────────────────
+            // ─── FULLSCREEN TOGGLE (FIXED) ────────────────────────────
 
             function toggleFullscreen() {
                 try {
-                    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    // Check if we're already in fullscreen
+                    const isFullscreen = document.fullscreenElement ||
+                        document.webkitFullscreenElement ||
+                        document.mozFullScreenElement ||
+                        document.msFullscreenElement;
+
+                    if (!isFullscreen) {
+                        // Try video element first (iOS Safari workaround)
+                        if (videoEl && videoEl.webkitEnterFullscreen) {
+                            try {
+                                videoEl.webkitEnterFullscreen();
+                                return;
+                            } catch (_) { /* ignore */ }
+                        }
+
+                        // Then try standard fullscreen on document
                         const el = document.documentElement;
                         if (el.requestFullscreen) {
                             el.requestFullscreen().catch(() => {});
                         } else if (el.webkitRequestFullscreen) {
                             el.webkitRequestFullscreen();
+                        } else if (el.mozRequestFullScreen) {
+                            el.mozRequestFullScreen();
                         } else if (el.msRequestFullscreen) {
                             el.msRequestFullscreen();
                         }
                     } else {
+                        // Exit fullscreen
                         if (document.exitFullscreen) {
                             document.exitFullscreen().catch(() => {});
                         } else if (document.webkitExitFullscreen) {
                             document.webkitExitFullscreen();
+                        } else if (document.mozCancelFullScreen) {
+                            document.mozCancelFullScreen();
                         } else if (document.msExitFullscreen) {
                             document.msExitFullscreen();
                         }
                     }
-                } catch (_) { /* ignore */ }
+                } catch (e) {
+                    console.warn('[VlogCam] Fullscreen error:', e);
+                }
             }
 
+            // --- Button events ---
             fsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleFullscreen();
@@ -427,6 +446,7 @@
                 hideGuiBtn.click();
             }, { passive: true });
 
+            // Tap on screen toggles fullscreen (convenience)
             screenEl.addEventListener('click', (e) => {
                 if (e.target === screenEl) {
                     toggleFullscreen();
@@ -442,7 +462,10 @@
             // ─── FULLSCREEN UI HIDE ───────────────────────────────────
 
             function handleFullscreenChange() {
-                if (document.fullscreenElement || document.webkitFullscreenElement) {
+                if (document.fullscreenElement ||
+                    document.webkitFullscreenElement ||
+                    document.mozFullScreenElement ||
+                    document.msFullscreenElement) {
                     document.body.classList.add('fullscreen-ui');
                 } else {
                     document.body.classList.remove('fullscreen-ui');
@@ -490,7 +513,7 @@
                     return s;
                 } catch (err) {
                     console.error('[VlogCam] getUserMedia failed:', err);
-                    // Fallback to lower settings if 1080p fails
+                    // Fallback to 720p if 1080p fails
                     try {
                         const fallbackConstraints = {
                             video: {
@@ -527,7 +550,6 @@
                     mimeType: mimeType || undefined,
                     videoBitsPerSecond: VIDEO_BITRATE,
                     audioBitsPerSecond: AUDIO_BITRATE,
-                    // Try constant bitrate to avoid spikes that exceed limit
                     // @ts-ignore - experimental
                     bitrateMode: "constant"
                 };
@@ -661,7 +683,7 @@
                 } catch (err) {
                     console.error('[VlogCam] upload failed:', err);
                     setStatus(`✗ upload #${clipCounter} failed`, true);
-                    clipCounter--; // retry same number
+                    clipCounter--;
                     throw err;
                 }
             }
